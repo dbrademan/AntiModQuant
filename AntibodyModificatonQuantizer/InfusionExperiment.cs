@@ -87,5 +87,16 @@ namespace AntibodyModificatonQuantizer
             message = "Have not hit peak detection conditions yet";
             return false;
         }
+
+        public static void DeterminePeakDetectionThresholds(ThermoRawFile rawfile)
+        {
+            // the background signal for flagging an MS1 as Sample or NotSample is somewhat dynamic.
+            // I've seen thresholds which could be placed from 1E3 to 1E6.
+            // We can detect an appropriate threshold by log10 tranforming the MS1 TIC intensity and picking FWHM of the lower distribution.
+
+            var histogramBuilder = 
+
+
+        }
     }
 }

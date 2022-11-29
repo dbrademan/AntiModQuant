@@ -22,7 +22,8 @@ namespace AntibodyModificatonQuantizer
             /// Strategy: 
             ///     Go through a raw file containing multiple NanoMate injections (infusion).
             ///     - Group MS1 scans by experiment. 
-            ///         - Try raw intensity cutoff first. 
+            ///         - Try raw intensity cutoff first.
+            ///         - Adapting this to a dynamic intensity cutoff. 
             ///             - Lazy but likely effective solution.
             ///         - Point out suspected missed injections as well.
             ///     
