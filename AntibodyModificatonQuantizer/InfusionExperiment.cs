@@ -10,82 +10,14 @@ namespace AntibodyModificatonQuantizer
 {
     internal class InfusionExperiment
     {
-        private static int expectedNumberOfMsnOnPeak = 8;
-        private static int toleratedNumberofMsnOnPeak = (int)Math.Round(InfusionExperiment.expectedNumberOfMsnOnPeak * 0.6);
-        private static int missedScanTolerance = 1;
+        private static double MaximumLog10BackgroundSignal = 6;
 
-        bool isMissedInjection;
-        List<MS1> experimentParentScans;
-        List<object> antibodyTargets;
+        public List<MS1> experimentParentScans;
+        public List<object> antibodyTargets;
 
-        public InfusionExperiment(Dictionary<int, MS1> scanGroup, ThermoRawFile rawfile)
+        public InfusionExperiment(List<MS1> scanGroup)
         {
-
-        }
-
-        // to group MS1 scans together by experiment, use an MS1 TIC intensity cutoff of 1E3
-        // if there are more than tolerated MS1 scans with < 1E3 TIC total,
-        //      group it.
-        //          call it a missed injection.
-        //          Don't digest until you hit signal again or the end of the raw file
-        //  
-        // if there are more than 5 MS1 scans with > 1E3 TIC in a row followed by a blank,
-        //      group it.
-        //          Call it a successful injection and process once you lose signal again for x2 scans
-        public static bool ExperimentComplete(Dictionary<int, MS1> currentScanQueue, out string message)
-        {
-            // no point peak detecting when we just started aggregating scans
-            if (currentScanQueue.Count < InfusionExperiment.expectedNumberOfMsnOnPeak * 0.6)
-            {
-                message = "Not enough points in group!";
-                return false;
-            }
-
-            var sequentialSampleScans = 0;
-            var sequentialBlankScans = 0;
-
-            // now see how many "Sample" msn scans you have in a row
-            foreach (var key in currentScanQueue.Keys)
-            {
-                if (sequentialSampleScans == 0)
-                {
-                    if (currentScanQueue[key].IsSample)
-                    {
-                        sequentialSampleScans++;
-                    }
-                }
-                // we're theoretically in a sample peak now. start peak detection
-                else
-                {
-                    if (currentScanQueue[key].IsSample)
-                    {
-                        sequentialSampleScans++;
-                    }
-                    else
-                    {
-                        // if we've hit the tolerance indicating the end of a peak, and we have hit enough points to be considered a peak
-                        if (sequentialBlankScans == 2 && sequentialSampleScans > InfusionExperiment.expectedNumberOfMsnOnPeak * 0.6)
-                        {
-                            message = "Good Sample Peak!";
-                            return true;
-                        }
-                        // if we've hit the tolerance indicating the end of a peak, and we don't have enough points to be considered a peak
-                        else if (sequentialBlankScans == 2 && sequentialSampleScans <= InfusionExperiment.expectedNumberOfMsnOnPeak * 0.6)
-                        {
-                            message = "Bad Sample Peak!";
-                            return true;
-                        }
-                        // use this to ignore accidental drop in electrospray?
-                        else
-                        {
-                            sequentialBlankScans++;
-                        }
-                    }
-                }
-            }
-
-            message = "Have not hit peak detection conditions yet";
-            return false;
+            this.experimentParentScans = scanGroup;
         }
 
         public static void DeterminePeakDetectionThresholds(ThermoRawFile rawfile)
@@ -93,10 +25,118 @@ namespace AntibodyModificatonQuantizer
             // the background signal for flagging an MS1 as Sample or NotSample is somewhat dynamic.
             // I've seen thresholds which could be placed from 1E3 to 1E6.
             // We can detect an appropriate threshold by log10 tranforming the MS1 TIC intensity and picking FWHM of the lower distribution.
-
-            var histogramBuilder = 
-
-
+            // Lazy approach currently, detect log10 threshold and add log10 unit of 1 as "cutoff".
+            MS1.SetSampleIntensityThreshold(InfusionExperiment.SetDynamicBackgroundThreshold(rawfile));
         }
+
+        private static double SetDynamicBackgroundThreshold(ThermoRawFile rawfile)
+        {
+            var Ms1TicHistogram = HistogramBuilder(rawfile);
+
+            // get max value in histogram < MaximumToleratedBackgroundSignal
+            var maxValue = -1;
+            double threshold = -1;
+
+            for (var i = 0.0; i <= InfusionExperiment.MaximumLog10BackgroundSignal; i += 0.1)
+            {
+                // round i to prevent floating point math errors
+                var roundedThreshold = Math.Round(i, 1);
+                if (maxValue <= Ms1TicHistogram[roundedThreshold])
+                {
+                    maxValue = Ms1TicHistogram[roundedThreshold];
+                    threshold = roundedThreshold;
+                }
+            }
+
+            // untransform from log10 spacae plus a fudge factor
+            // TODO: calculate fudge factor from histogram distribution
+            return Math.Pow(10, threshold + 1);
+        }
+
+        private static Dictionary<double, int> HistogramBuilder(ThermoRawFile rawfile)
+        {
+            // create histogram to store log10 transformed TIC 
+            var returnDictionary = new Dictionary<double, int>();
+
+            // signal should never be larger than 1e11
+            for (var i = 0.0; i <= 11; i += 0.1)
+            {
+                returnDictionary.Add(Math.Round(i, 1), 0);
+            }
+
+            for (var i = rawfile.FirstSpectrumNumber; i <= rawfile.LastSpectrumNumber; i++)
+            {
+                if (rawfile.GetMsnOrder(i) == 1)
+                {
+                    var ms1TIC = rawfile.GetTIC(i);
+                    double log10TransformedTIC = -1;
+
+                    if (ms1TIC == 0)
+                    {
+                        // can't log10 transform 0;
+                        returnDictionary[0]++;
+                    }
+                    else
+                    {
+                        // log10 transformTic and round to nearest tenth's place
+                        log10TransformedTIC = Math.Round(Math.Log10(ms1TIC), 1);
+                        var t = "";
+
+                        returnDictionary[log10TransformedTIC]++;
+                    }
+                }
+            }
+
+            return returnDictionary;
+        }
+
+        
+        // lazy algorithm.
+        // in short, anytime we hit a sample-flagged MS1, start aggregating scans
+        // start adding MS1 scans to it
+        // once we hit a nonsample-flagged MS1, start a new list
+        // Will not account for drops in spray stability or find missed injections
+        public static List<InfusionExperiment> NaivePeakDetection(Dictionary<int, MS1> ms1Scans)
+        {
+            var returnList = new List<InfusionExperiment>();
+
+            var sortedKeys = ms1Scans.Keys.ToList();
+            sortedKeys.Sort();
+
+            List<MS1> experimentScanList = new List<MS1>();
+            var inExperiment = false;
+
+            foreach (var key in sortedKeys)
+            {
+                var thisMs1 = ms1Scans[key];
+
+                if (inExperiment)
+                {
+                    if (thisMs1.IsSample)
+                    {
+                        experimentScanList.Add(thisMs1);
+                    }
+                    else
+                    {
+                        inExperiment = false;
+                        returnList.Add(new InfusionExperiment(experimentScanList));
+                    }
+                }
+                else
+                {
+                    // currently not aggregating MS1 scans
+                    if (thisMs1.IsSample) 
+                    {
+                        inExperiment = true;
+
+                        experimentScanList = new List<MS1>();
+                        experimentScanList.Add(thisMs1);
+                    }
+                }
+            }
+
+            return returnList;
+        }
+        
     }
 }

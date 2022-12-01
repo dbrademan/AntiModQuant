@@ -35,47 +35,38 @@ namespace AntibodyModificatonQuantizer
             ///     
             /// </remarks>
 
-            var rawfilePath = @"T:\File_exchange\Pavel\from Alex\ms2\31oct2022_deamidation_nist3.raw";
+            var rawfilePath = @"P:\DRB_ASH_AntibodyCharacterization\withMS2\17jun2022_NM_oxCurve_20220617022316.raw";
             var rawfile = new ThermoRawFile(rawfilePath);
             rawfile.Open();
 
-            // to group MS1 scans together by experiment, use an MS1 TIC intensity cutoff of 1E3
-            // if there are more than 5 MS1 scans with < 1E3 TIC in a row,
-            //      group it.
-            //          call it a missed injection.
-            //          Don't digest until you hit signal again or the end of the raw file
-            //  
-            // if there are more than 5 MS1 scans with > 1E3 TIC in a row,
-            //      group it.
-            //          Call it a successful injection and process once you lose signal again for x2 scans
+            //## COMPLETE SOPHISTICATED EXPERIMENT DETECTION LATER
+            //## For now, just use signal > threshold, experiment on. signal < Threshold, experiment off;
+            InfusionExperiment.DeterminePeakDetectionThresholds(rawfile);
 
-            // go through raw file. Aggregate runs. Digest queue if it hits the above thresholds and restart
-            Dictionary<int, MS1> runningScanQueue = new Dictionary<int, MS1>();
-            
+            // go through raw file. Aggregate MS1 scans and flag as Sample or NotSample
+            Dictionary<int, MS1> ms1Scans = new Dictionary<int, MS1>();
+            var currentMs1Scan = -1;
+
             for (var i = rawfile.FirstSpectrumNumber; i <= rawfile.LastSpectrumNumber; i++)
             {
                 if (rawfile.GetMsnOrder(i) == 1)
                 {
-                    var outMessage = "";
-                    // check if you need to digest the scan queue at this point.
-                    if (InfusionExperiment.ExperimentComplete(runningScanQueue, out outMessage))
-                    {
-                        var t = "";
-                        //InfusionExperiment.Digest(runningScanQueue);
-                    }
-
-
-                    runningScanQueue.Add(i, new MS1(rawfile, i));
+                    currentMs1Scan = i;
+                    ms1Scans.Add(i, new MS1(rawfile, i));
                 }
-                // if this isn't an MS1, the parent scan should already be in the dictinary. Add it
                 else
                 {
-                    runningScanQueue[rawfile.GetParentSpectrumNumber(i)].ChildSpectra.Add(new MS2());
+                    ms1Scans[currentMs1Scan].ChildSpectra.Add(new MS2(rawfile, i));
                 }
             }
 
-            // finish off by digesting scan queue now that we're at the end of the raw file
-
+            // using your lazy algorithm, try and group experiments
+            // seems to work fine for the better data of Alex's
+            var infusionExperiments = InfusionExperiment.NaivePeakDetection(ms1Scans);
+            var t = "";
+            
+            // organise your quantification targets. 
+            List<QuantificationGroup> quantificationGroups = new List<QuantificationGroup>();
 
 
 

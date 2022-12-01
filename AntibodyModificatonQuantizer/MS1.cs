@@ -9,8 +9,9 @@ namespace AntibodyModificatonQuantizer
 {
     internal class MS1
     {
-        private static double SampleIntensityThreshold = 1000; // 1E3
+        public static double SampleIntensityThreshold = 1000; // 1E3
 
+        public ThermoRawFile Rawfile { get; private set; }
         public int ScanNumber { get; private set; }
         public double RetentionTime { get; private set; }
         public bool IsSample { get; private set; }
@@ -19,12 +20,13 @@ namespace AntibodyModificatonQuantizer
 
         public MS1(ThermoRawFile rawfile, int scanNumber)
         {
+            this.Rawfile = rawfile;
             this.ScanNumber = scanNumber;
             this.RetentionTime = rawfile.GetRetentionTime(this.ScanNumber);
             this.ChildSpectra = new List<MS2>();
             this.QuantResults = new List<object>();
 
-            if (rawfile.GetSpectrum(scanNumber).GetBasePeakIntensity() > MS1.SampleIntensityThreshold)
+            if (rawfile.GetTIC(this.ScanNumber) > MS1.SampleIntensityThreshold)
             {
                 this.IsSample = true;
             }
@@ -32,6 +34,11 @@ namespace AntibodyModificatonQuantizer
             {
                 this.IsSample = false;
             }
+        }
+
+        public static void SetSampleIntensityThreshold(double newThreshold)
+        {
+            MS1.SampleIntensityThreshold = newThreshold;
         }
     }
 }
